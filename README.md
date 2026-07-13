@@ -1,7 +1,7 @@
-# Empirical Verification of Execution Friction in Deep RL Microstructure Models
+# Deep Reinforcement Learning on High-Frequency Limit Order Books
 
 ## Abstract
-This repository implements an empirical investigation into the extraction of generalized alpha from Level 2 (L2) Limit Order Books using Deep Reinforcement Learning (DRL). While theoretical models often yield significant alpha in frictionless environments, this research explicitly maps the thermodynamic decay of that edge against centralized exchange taker fees. The agent successfully identifies structural imbalance in the LOB (+10.34% OOS frictionless return) but empirically proves that profitability requires sub-3 bps institutional execution tiers or DeFi mempool latency advantages.
+This repository implements an empirical framework for applying Deep Reinforcement Learning (DRL) to Level 2 (L2) Limit Order Books. The primary objective is to train an autonomous agent to perform optimal market making and directional scalping by observing the microstructure of the order book. While theoretical models often yield significant alpha in frictionless environments, this research also explicitly maps the thermodynamic decay of that edge against centralized exchange taker fees. The agent successfully identifies structural imbalance in the LOB (+10.34% OOS frictionless return) but empirically proves that profitability requires sub-3 bps institutional execution tiers or DeFi mempool latency advantages.
 
 ## Mathematical Formulation & Architecture
 
