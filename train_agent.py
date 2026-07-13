@@ -16,7 +16,8 @@ def main():
 
     # Create the environment
     # We use a window size of 10 to give the agent a sense of recent LOB momentum
-    env_creator = lambda: L2TradingEnv(data_path, window_size=10, initial_balance=10000.0, taker_fee=0.0005)
+    # We use end_idx=69037 to strictly isolate the first 80% of data for training
+    env_creator = lambda: L2TradingEnv(data_path, window_size=10, initial_balance=10000.0, taker_fee=0.0, end_idx=69037)
     
     # Wrap it to normalize the extremely large numbers in the order book (amounts, prices)
     # This is CRITICAL for neural networks to converge
@@ -29,9 +30,9 @@ def main():
     # Because we flattened our 2D state into a 1D vector (handled implicitly by flattening the obs), MlpPolicy works well.
     model = PPO("MlpPolicy", env, verbose=1, learning_rate=0.0003, n_steps=2048, batch_size=64, ent_coef=0.01, device='auto')
     
-    print("Training Agent... (Targeting overnight 10M timesteps to reach 6% daily growth)")
-    # Train for 10 Million timesteps
-    total_timesteps = 10000000 
+    print("Training Agent... (Targeting 100k timesteps)")
+    # Train for 100k timesteps
+    total_timesteps = 100000 
     model.learn(total_timesteps=total_timesteps)
     
     # Save the model and normalization stats

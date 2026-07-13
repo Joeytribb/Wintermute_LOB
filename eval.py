@@ -3,7 +3,8 @@ from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 from rl_env import L2TradingEnv
 
 def main():
-    env_creator = lambda: L2TradingEnv('data/l2_features.csv', window_size=10, initial_balance=10000.0, taker_fee=0.0005)
+    # Evaluate Out-Of-Sample (OOS) using start_idx=69037 to hit the final 20%
+    env_creator = lambda: L2TradingEnv('data/l2_features.csv', window_size=10, initial_balance=10000.0, taker_fee=0.0, start_idx=69037)
     env = DummyVecEnv([env_creator])
     env = VecNormalize.load('vec_normalize.pkl', env)
     env.training = False
