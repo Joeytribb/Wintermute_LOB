@@ -16,4 +16,4 @@ This project rejects standard holdout point-estimates. We employ two rigorous in
 **Results:** The agent achieved an Out-Of-Sample **Deflated Sharpe Ratio > 2.0**, passing the 95% statistical significance threshold. 
 
 ## 📑 Research Paper
-The full mathematical formulations, Bellman execution penalties, and Deflated Sharpe probability densities can be reviewed in the compiled LaTeX pre-print: **`oxford_paper.pdf`**.
+The full mathematical formulations, Bellman execution penalties, and Deflated Sharpe probability densities can be reviewed in the compiled LaTeX pre-print: **`Thermic_PrePrint.pdf`**.
