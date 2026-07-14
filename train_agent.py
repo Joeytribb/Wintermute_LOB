@@ -17,7 +17,7 @@ def main():
     # Create the environment
     # We use a window size of 10 to give the agent a sense of recent LOB momentum
     # We use end_idx=69037 to strictly isolate the first 80% of data for training
-    env_creator = lambda: L2TradingEnv(data_path, window_size=10, initial_balance=10000.0, taker_fee=0.0, end_idx=69037)
+    env_creator = lambda: L2TradingEnv(data_path, window_size=10, initial_balance=10000.0, taker_fee=0.0005, maker_rebate=0.0001, end_idx=69037)
     
     # Wrap it to normalize the extremely large numbers in the order book (amounts, prices)
     # This is CRITICAL for neural networks to converge

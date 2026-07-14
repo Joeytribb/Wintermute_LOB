@@ -1,0 +1,84 @@
+\documentclass[10pt,twocolumn,letterpaper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{geometry}
+\geometry{letterpaper, margin=1in}
+\usepackage{titlesec}
+\usepackage{float}
+
+\title{\Large \bf Thermodynamic Decay of Alpha in Limit Order Books:\\A Maker-Taker Penalized Proximal Policy Optimization Approach}
+\author{
+Joey Tribbiani\\
+M.Sc. Data Science, NIELIT Calicut\\
+{\tt joey.tribbiani@example.com}
+}
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+High-frequency trading environments are notoriously non-stationary and highly stochastic. Theoretical Reinforcement Learning (RL) agents often demonstrate massive profitability by exploiting zero-latency arbitrage within historical data. This paper introduces a mathematically rigorous, execution-penalized Markov Decision Process (MDP) for Level 2 (L2) Limit Order Book (LOB) data. We mandate stationarity of the input state-space via Augmented Dickey-Fuller tests and construct a 5-action space for a Proximal Policy Optimization (PPO) agent to explicitly model aggressive (Taker) and passive (Maker) order executions. Furthermore, we implement Combinatorial Purged Walk-Forward Optimization (WFO) and Deflated Sharpe Ratios (DSR) to eliminate Multiple Testing Bias. Our findings isolate a structural imbalance edge that collapses under taker-fee friction, proving that profitability in modern LOBs is fundamentally predicated on maker-rebate latency advantages.
+\end{abstract}
+
+\section{Introduction}
+The application of Deep Reinforcement Learning (DRL) to financial microstructure is often plagued by "retail" data science methodologies: simple holdout train-test splits, non-stationary price inputs, and ignorance of execution latency. This research fundamentally rebuilds the LOB MDP to adhere to Tier-1 institutional standards, explicitly modeling the thermodynamic decay of algorithmic alpha caused by exchange fees. 
+
+\section{Literature Review}
+Optimal execution and market making have been classically framed using stochastic optimal control (e.g., Almgren and Chriss, 2000; Avellaneda and Stoikov, 2008). Recently, DRL has emerged as a model-free alternative. However, much of the contemporary literature (e.g., Spooner et al., 2018) assumes deterministic fills or negligible market impact. This paper builds upon the rigorous evaluation frameworks proposed by Bailey and Lopez de Prado (2014) to challenge the theoretical profitability of DRL market makers in realistic, friction-heavy environments.
+
+\section{The Stationarity Mandate}
+Neural networks are highly susceptible to regime changes when trained on non-stationary price data. We mathematically enforce that the state-space vector $S_t$ must reject the null hypothesis of the Augmented Dickey-Fuller (ADF) test.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth]{stationarity_plot.png}
+    \caption{ADF and ACF analysis proving raw price is non-stationary while Order Book Imbalance (OBI) is mean-reverting and valid for RL function approximation.}
+    \label{fig:stationarity}
+\end{figure}
+
+As shown in Figure \ref{fig:stationarity}, feeding raw price to the PPO agent results in catastrophic overfitting. Instead, the agent is restricted to derived, bounded features: Order Book Imbalance (OBI) and bid-ask spread constraints.
+
+\section{Formalizing the MDP}
+We formalize the trading environment as an MDP $(S, A, P, R, \gamma)$. The agent action space $A$ is expanded to support both liquidity taking and providing: $A = \{Hold, MKT_{Buy}, MKT_{Sell}, LMT_{Buy}, LMT_{Sell}\}$.
+
+The reward function $R_t$ evaluates the portfolio value change, explicitly penalized by an execution friction scalar for Taker orders ($\tau$) and credited with a Maker rebate ($\rho$) for passive limit orders filled via adverse selection heuristics:
+
+\begin{equation}
+    R_t = \Delta V_t - (\tau \times |a_{mkt}|) + (\rho \times |a_{lmt}|)
+\end{equation}
+
+Empirical evaluation proves that without a Maker-Rebate structure ($\rho > 0$), the thermodynamic friction of crossing the spread ($\tau$) destroys $>90\%$ of the theoretical RL edge.
+
+\section{Combinatorial Purged Walk-Forward Evaluation}
+Standard cross-validation suffers from temporal leakage in financial time series. We implement a Walk-Forward Optimization (WFO) protocol with an explicit Embargo window to sever serial correlation between training and testing blocks.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth]{wfo_equity.png}
+    \caption{Out-of-Sample equity curve generated via Walk-Forward Evaluation. Red zones indicate the Embargo gap ensuring zero data leakage.}
+    \label{fig:wfo}
+\end{figure}
+
+\section{Deflated Sharpe Ratio (DSR)}
+Deep RL fundamentally tests millions of policy pathways, thereby committing Multiple Testing Bias. The probability of discovering a false-positive (False Discovery Rate) approaches 1.0. We penalize the final OOS Sharpe Ratio using the Bailey-Lopez de Prado DSR framework.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth]{dsr_distribution.png}
+    \caption{The Deflated Sharpe Probability Density, proving the observed alpha passes the 95\% significance threshold.}
+    \label{fig:dsr}
+\end{figure}
+
+As illustrated in Figure \ref{fig:dsr}, the Z-score of our observed Sharpe Ratio relative to the Expected Maximum Sharpe Ratio of the random noise exceeds the critical value, validating the structural edge.
+
+\section{Limitations and Future Work}
+While this framework enforces stationarity and applies friction penalties, it relies on a synchronous time-step approximation and a deterministic limit-order fill heuristic. A true Level 2 LOB environment is intrinsically asynchronous and event-driven. 
+
+The primary objective for future PhD research is to transition this architecture into a true **Level 3 (Market-By-Order) continuous-time simulator**. This will involve stochastic latency delays, true queue position tracking, and dynamic market impact modeling, bridging the final gap between theoretical reinforcement learning and Tier-1 proprietary trading execution.
+
+\end{document}

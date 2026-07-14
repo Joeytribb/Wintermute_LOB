@@ -5,11 +5,13 @@ from gymnasium import spaces
 
 class L2TradingEnv(gym.Env):
     """
-    Custom Environment for High-Frequency Trading on L2 Order Book data.
+    Tier-1 Institutional Custom Environment for High-Frequency Trading.
+    Simulates Level 2 Order Book dynamics including Maker/Taker friction 
+    and passive queue position heuristics.
     """
     metadata = {'render_modes': ['human']}
 
-    def __init__(self, data_path, window_size=10, initial_balance=10000.0, taker_fee=0.0005, start_idx=None, end_idx=None):
+    def __init__(self, data_path, window_size=10, initial_balance=10000.0, taker_fee=0.0005, maker_rebate=0.0001, start_idx=None, end_idx=None):
         super(L2TradingEnv, self).__init__()
         
         # Load the reconstructed order book features
@@ -19,26 +21,28 @@ class L2TradingEnv(gym.Env):
         if start_idx is not None or end_idx is not None:
             self.df = self.df.iloc[start_idx:end_idx].reset_index(drop=True)
         
-        # Calculate mid_price for simple PnL tracking
-        self.df['mid_price'] = (self.df['bid_price_1'] + self.df['ask_price_1']) / 2.0
+        # Derive missing prices from spread
+        self.df['bid_price_1'] = self.df['ask_price_1'] - self.df['spread']
+        self.df['mid_price'] = self.df['ask_price_1'] - (self.df['spread'] / 2.0)
         
-        # Calculate Advanced Features
-        bid_vol = self.df[[f'bid_amount_{i}' for i in range(1, 6)]].sum(axis=1)
-        ask_vol = self.df[[f'ask_amount_{i}' for i in range(1, 6)]].sum(axis=1)
-        self.df['obi'] = (bid_vol - ask_vol) / (bid_vol + ask_vol + 1e-8)
-        self.df['spread'] = self.df['ask_price_1'] - self.df['bid_price_1']
-        
-        # Drop timestamp for the feature vector
-        self.features = self.df.drop(columns=['timestamp', 'mid_price']).values
+        # Keep only derived stationary features for the observation space
+        feature_cols = ['obi', 'spread']
+        self.features = self.df[feature_cols].values
         
         self.window_size = window_size
         self.initial_balance = initial_balance
         self.taker_fee = taker_fee
+        self.maker_rebate = maker_rebate
         
-        # Action space: 0 = Hold, 1 = Buy (Long), 2 = Sell (Short)
-        self.action_space = spaces.Discrete(3)
+        # Action space: 
+        # 0 = Hold
+        # 1 = Market Buy (Aggressive, pays taker fee)
+        # 2 = Market Sell (Aggressive, pays taker fee)
+        # 3 = Limit Buy (Passive, posts at bid, earns maker rebate if filled)
+        # 4 = Limit Sell (Passive, posts at ask, earns maker rebate if filled)
+        self.action_space = spaces.Discrete(5)
         
-        # Observation space: 20 LOB features * window_size
+        # Observation space
         self.n_features = self.features.shape[1]
         self.observation_space = spaces.Box(
             low=-np.inf, high=np.inf, 
@@ -52,20 +56,23 @@ class L2TradingEnv(gym.Env):
         self.position = 0 # 1 for Long, -1 for Short, 0 for Flat
         self.entry_price = 0.0
         
+        # Pending Limit Orders
+        self.pending_limit_buy = None
+        self.pending_limit_sell = None
+        
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
-        # Start at window_size to have enough history
         self.current_step = self.window_size
         self.balance = self.initial_balance
         self.position = 0
         self.entry_price = 0.0
+        self.pending_limit_buy = None
+        self.pending_limit_sell = None
         
         return self._get_observation(), {}
         
     def _get_observation(self):
-        # Return a rolling window of LOB features
         obs = self.features[self.current_step - self.window_size:self.current_step]
-        # We could normalize here, but we will let PPO's VecNormalize handle it
         return obs.astype(np.float32)
         
     def step(self, action):
@@ -74,42 +81,28 @@ class L2TradingEnv(gym.Env):
         bid_price = current_row['bid_price_1']
         mid_price = current_row['mid_price']
         
-        # Calculate prev portfolio value
-        prev_portfolio_val = self.balance
-        if self.position == 1:
-            prev_portfolio_val += (mid_price - self.entry_price)
-        elif self.position == -1:
-            prev_portfolio_val += (self.entry_price - mid_price)
+        # Track previous value to calculate step reward
+        prev_portfolio_val = self._calculate_portfolio_value(mid_price)
             
-        # Execution Logic
-        if action == 1: # BUY
-            if self.position == 0: # Enter Long
-                self.position = 1
-                self.entry_price = ask_price
-                self.balance -= ask_price * self.taker_fee # Pay fee
-            elif self.position == -1: # Close Short
-                pnl = (self.entry_price - ask_price)
-                self.balance += pnl - (ask_price * self.taker_fee)
-                self.position = 0
-                
-        elif action == 2: # SELL
-            if self.position == 0: # Enter Short
-                self.position = -1
-                self.entry_price = bid_price
-                self.balance -= bid_price * self.taker_fee # Pay fee
-            elif self.position == 1: # Close Long
-                pnl = (bid_price - self.entry_price)
-                self.balance += pnl - (bid_price * self.taker_fee)
-                self.position = 0
-                
-        # Calculate new portfolio value
-        new_portfolio_val = self.balance
-        if self.position == 1:
-            new_portfolio_val += (mid_price - self.entry_price)
-        elif self.position == -1:
-            new_portfolio_val += (self.entry_price - mid_price)
+        # 1. Evaluate pending limit orders from previous step
+        self._evaluate_limit_orders(ask_price, bid_price)
             
-        # Reward is strictly the change in portfolio value
+        # 2. Process new action from agent
+        if action == 1: # Market BUY
+            if self.position <= 0: 
+                self._execute_trade(ask_price, direction=1, fee_rate=-self.taker_fee)
+        elif action == 2: # Market SELL
+            if self.position >= 0:
+                self._execute_trade(bid_price, direction=-1, fee_rate=-self.taker_fee)
+        elif action == 3: # Limit BUY (Post at current bid)
+            if self.position <= 0:
+                self.pending_limit_buy = bid_price
+        elif action == 4: # Limit SELL (Post at current ask)
+            if self.position >= 0:
+                self.pending_limit_sell = ask_price
+                
+        # 3. Calculate new value and reward
+        new_portfolio_val = self._calculate_portfolio_value(mid_price)
         reward = new_portfolio_val - prev_portfolio_val
                 
         self.current_step += 1
@@ -123,3 +116,42 @@ class L2TradingEnv(gym.Env):
         }
         
         return self._get_observation(), float(reward), bool(terminated), bool(truncated), info
+
+    def _calculate_portfolio_value(self, current_mid_price):
+        val = self.balance
+        if self.position == 1:
+            val += (current_mid_price - self.entry_price)
+        elif self.position == -1:
+            val += (self.entry_price - current_mid_price)
+        return val
+
+    def _execute_trade(self, price, direction, fee_rate):
+        """
+        Executes a trade, applying fees or rebates.
+        fee_rate is negative for taker fee, positive for maker rebate.
+        """
+        if self.position == 0: # Entering position
+            self.position = direction
+            self.entry_price = price
+            # Fee is relative to notional size of 1 BTC/unit
+            self.balance += price * fee_rate 
+        else: # Closing position (must be opposite direction)
+            pnl = (price - self.entry_price) if self.position == 1 else (self.entry_price - price)
+            self.balance += pnl + (price * fee_rate)
+            self.position = 0
+
+    def _evaluate_limit_orders(self, current_ask, current_bid):
+        """
+        Simulates filling of limit orders based on new order book state.
+        A passive buy is filled if the new ask drops to or below the limit price (adverse selection).
+        A passive sell is filled if the new bid rises to or above the limit price.
+        """
+        if self.pending_limit_buy is not None:
+            if current_ask <= self.pending_limit_buy:
+                self._execute_trade(self.pending_limit_buy, direction=1, fee_rate=self.maker_rebate)
+            self.pending_limit_buy = None # Orders cancel if not filled immediately for simplicity
+
+        if self.pending_limit_sell is not None:
+            if current_bid >= self.pending_limit_sell:
+                self._execute_trade(self.pending_limit_sell, direction=-1, fee_rate=self.maker_rebate)
+            self.pending_limit_sell = None
